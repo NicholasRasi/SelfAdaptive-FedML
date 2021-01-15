@@ -1,0 +1,24 @@
+### Get the status
+GET http://{{host}}:{{port}}/
+Accept: application/json
+
+### Get a device
+GET http://{{host}}:{{port}}/devices/fe0a0c3b-25f3-4b37-a37d-7dc981e0db02
+Accept: application/json
+
+### Get the devices
+GET http://{{host}}:{{port}}/devices
+Accept: application/json
+
+### Post a device
+POST http://{{host}}:{{port}}/devices/join
+Content-Type: application/json
+
+{
+  "status": "active",
+  "id": "fe0a0c3b-25f3-4b37-a37d-7dc981e0db02",
+  "host": "localhost",
+  "port": 5100,
+  "server_host": "http://localhost:5000",
+  "client_capabilities": {}
+}
