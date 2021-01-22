@@ -1,9 +1,10 @@
 import random
 import federate_learning as fl
+from federate_learning.device.dataset_model_loader import DatasetModelLoader
 import os
 import tensorflow as tf
 import statistics
-import numpy as np
+
 
 # Tensorflow init
 tf.config.optimizer.set_jit(True)
@@ -14,30 +15,15 @@ port = os.getenv('FL_PORT') or random.randint(5100, 5200)
 
 # local sample size n_k
 nk = int(os.getenv('FL_NK') or 100)
+model = str(os.getenv('FL_MODEL') or "mnist")
+server_host = str(os.getenv('FL_SERVERHOST') or 'localhost:5000')
 
-# load MNIST data
-(x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
-x_train, x_test = x_train / 255.0, x_test / 255.0
+model_loader = DatasetModelLoader(model)
+x_train, y_train, x_test, y_test = model_loader.get_dataset(nk)
+tf_model = model_loader.get_compiled_model()
 
-# select random samples
-indices = np.random.choice(x_train.shape[0], nk, replace=False)
-x_train = x_train[indices]
-y_train = y_train[indices]
 
-# build and compile Keras model
-tf_model = tf.keras.models.Sequential(
-    [
-        tf.keras.layers.Flatten(input_shape=(28, 28)),
-        tf.keras.layers.Dense(128, activation="relu"),
-        tf.keras.layers.Dropout(0.2),
-        tf.keras.layers.Dense(10, activation="softmax"),
-    ]
-)
-tf_model.compile(
-    optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"]
-)
-
-class MnistModel(fl.Model):
+class TrainableModel(fl.Model):
     def get_weights(self):
         return self.model.get_weights()
 
@@ -56,15 +42,15 @@ class MnistModel(fl.Model):
         return len(x_test), loss, accuracy
 
 
-mnist_model = MnistModel(name="Mnist", framework="TF", model=tf_model)
+model = TrainableModel(name=model, framework="TF", model=tf_model)
 
 # init available models
-available_models = [mnist_model]
+available_models = [model]
 
 app = fl.device.DeviceApp(__name__)
 app.device.config(host="localhost",
                   port=port,
-                  server_host="localhost:5000",
+                  server_host=server_host,
                   available_models=available_models)
 
 app.run()

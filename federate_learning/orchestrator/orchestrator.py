@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 import queue
@@ -6,83 +7,55 @@ from federate_learning.device import Device
 from federate_learning.orchestrator import DeviceManager, JobsDispatcher
 from federate_learning.common import JobType, Job, Parameters, Result, Model
 from federate_learning.orchestrator.aggregation_strategy import FedAvg
-from federate_learning.orchestrator.control_strategy import ControlType, ControlStrategy
-from federate_learning.orchestrator.control_strategy.dynamic_1 import Dynamic1
-from federate_learning.orchestrator.control_strategy.static import Static
+from federate_learning.orchestrator.control_strategy import ControlStrategy
 
 
 class Orchestrator:
     def __init__(self, logger):
         self.logger = logger
         self.status = "active"
-        self.num_rounds = None
-        self.target_accuracy = None
-        self.min_devices = None
-        self.k_fit = None
-        self.k_eval = None
-        self.num_epochs = None
-        self.batch_size = None
         self.jobs_dispatcher = JobsDispatcher(logger=self.logger)
         self.results_queue = queue.Queue()
         self.device_manager = DeviceManager()
         self.condition = threading.Condition()
         self.available_models = {}
-        self.control_strategy_fun = None
+        self.export_metrics = False
+        self.metrics_file = 'execution_metrics/metrics_{}_{}_{}_{}_{}.json'
 
     def config(self,
                available_models,
-               num_rounds=10,
-               min_devices=2,
-               k_fit=1,
-               k_eval=1,
-               num_epochs=10,
-               batch_size=32,
-               control_type=ControlType.STATIC):
+               export_metrics=False):
         self.available_models = available_models
-        self.num_rounds = int(num_rounds)
-        self.min_devices = int(min_devices)
-
-        if control_type == ControlType.DYNAMIC_1:
-            control_strategy = Dynamic1(num_epochs=num_epochs,
-                                        batch_size=batch_size,
-                                        num_rounds=self.num_rounds,
-                                        k_fit=k_fit,
-                                        k_eval=k_eval,
-                                        logger=self.logger)
-        else:
-            # control_type == ControlType.STATIC:
-            control_strategy = Static(num_epochs=num_epochs,
-                                      batch_size=batch_size,
-                                      num_rounds=self.num_rounds,
-                                      k_fit=k_fit,
-                                      k_eval=k_eval,
-                                      logger=self.logger)
-        self.control_strategy_fun = control_strategy.apply_strategy
-
+        for model in available_models:
+            model.logger = self.logger
+            model.control_strategy.logger = self.logger
+        self.export_metrics = export_metrics
 
     def training(self):
-        self.logger.debug("waiting min {} devices available".format(self.min_devices))
-        while self.device_manager.num_devices() < self.min_devices:
-            time.sleep(2)
-        self.logger.info("start federated learning R={}, K(train)={}, K(eval)={}".format(self.num_rounds,
-                                                                                         self.k_fit,
-                                                                                         self.k_eval))
-
         for model in self.available_models:
             self.logger.info("starting training for model {}".format(model.name))
+            cs: ControlStrategy = model.control_strategy
+
+            self.logger.debug("waiting min {} devices available".format(cs.min_devices))
+            while self.device_manager.num_devices() < cs.min_devices:
+                time.sleep(2)
+            self.logger.info("starting federated learning,"
+                             "init params: R={}, K(train)={}, K(eval)={}".format(cs.num_rounds,
+                                                                                 cs.k_fit,
+                                                                                 cs.k_eval))
 
             self.logger.debug("getting init weights from a random client")
-            device = self.device_manager.get_sample(num_devices=1, model_name=None)[0]
+            device = self.device_manager.get_sample(num_devices=1, model_name=model.name)[0]
             weights = self.get_init_weights(model=model, device=device)
 
             self.logger.debug("updating model weights")
             model.weights = weights
 
-            for tround in range(1, self.num_rounds + 1):
-                self.logger.info("round {}/{}".format(tround, self.num_rounds))
+            for tround in range(1, cs.num_rounds + 1):
+                self.logger.info("round {}/{}".format(tround, cs.num_rounds))
 
                 self.logger.info("applying control strategy")
-                k_fit, k_eval, device_config = self.control_strategy_fun(model, tround)
+                k_fit, k_eval, device_config = model.control_strategy.apply_strategy(tround)
                 self.logger.info("K(fit)={}, K(eval)={}, config={}".format(k_fit, k_eval, device_config))
 
                 num_devices_fit = int(self.device_manager.num_devices() * k_fit)
@@ -92,38 +65,68 @@ class Orchestrator:
                 self.logger.info("selected random client sample: {}".format([d.id for d in devices_fit]))
 
                 self.logger.info("fitting model")
-                new_weights, aggregated_loss, \
-                aggregated_acc, aggregated_cost = self.fit_model(model=model,
-                                                                 devices=devices_fit,
-                                                                 device_config=device_config)
+                new_weights, aggregated_loss_fit, \
+                aggregated_acc_fit, aggregated_cost_fit = self.fit_model(model=model,
+                                                                         devices=devices_fit,
+                                                                         device_config=device_config)
 
-                self.logger.debug("updating model weights and appending loss/acc, device config")
+                self.logger.debug("updating model weights")
                 model.weights = Parameters(ndarray_list=new_weights)
-                model.metrics.train_losses.append(aggregated_loss)
-                model.metrics.train_accuracies.append(aggregated_acc)
-                model.metrics.costs.append(aggregated_cost)
-                model.metrics.device_configs.append(device_config)
 
                 num_devices_eval = int(self.device_manager.num_devices() * k_eval)
                 self.logger.debug("selecting {} random devices for eval".format(num_devices_eval))
                 devices_eval = self.device_manager.get_sample(model_name=model.name, num_devices=num_devices_eval)
                 self.logger.info("selected random client sample: {}".format([d.id for d in devices_eval]))
-                aggregated_loss, aggregated_acc = self.evaluate_model(model=model, devices=devices_eval, tround=tround)
-                model.metrics.eval_losses.append(aggregated_loss)
-                model.metrics.eval_accuracies.append(aggregated_acc)
+                aggregated_loss_eval, aggregated_acc_eval = self.evaluate_model(model=model,
+                                                                                devices=devices_eval,
+                                                                                tround=tround)
+
+                self.logger.debug("updating model metrics")
+                model.metrics.add_metrics(k_fit=k_fit,
+                                          num_devices_fit=num_devices_fit,
+                                          loss_fit=aggregated_loss_fit,
+                                          accuracy_fit=aggregated_acc_fit,
+                                          computation_cost_fit=aggregated_cost_fit,
+                                          network_cost_fit=len(devices_fit),
+                                          k_eval=k_eval,
+                                          num_devices_eval=num_devices_eval,
+                                          loss_eval=aggregated_loss_eval,
+                                          accuracy_eval=aggregated_acc_eval,
+                                          computation_cost_eval=0,
+                                          network_cost_eval=len(devices_eval),
+                                          device_config=device_config)
 
             self.print_model_metrics(model=model)
+            if self.export_metrics:
+                self.export_model_metrics(model=model)
 
     def print_model_metrics(self, model: Model):
+        cs: ControlStrategy = model.control_strategy
         self.logger.info("training for model {} finished".format(model.name))
-        self.logger.info("target accuracy {0:0.4f}".format(model.target_accuracy))
-        self.logger.info("train losses: {}".format(["{0:0.4f}".format(l) for l in model.metrics.train_losses]))
-        self.logger.info("train accuracies: {}".format(["{0:0.4f}".format(a) for a in model.metrics.train_accuracies]))
-        self.logger.info("eval losses: {}".format(["{0:0.4f}".format(l) for l in model.metrics.eval_losses]))
-        self.logger.info("eval accuracies: {}".format(["{0:0.4f}".format(a) for a in model.metrics.eval_accuracies]))
-        self.logger.info("costs: {}, total: {:0.2f}".format(["{0:0.2f}".format(c) for c in model.metrics.costs],
-                                                            sum(model.metrics.costs)))
+        self.logger.info("control type: {}".format(cs.name))
+        self.logger.info("target accuracy: {:0.4f}".format(cs.target.accuracy))
+        self.logger.info("target num rounds: {}".format(cs.target.num_round))
+        self.logger.info("target network cost: {}".format(cs.target.network_cost))
+        self.logger.info("losses fit: {}".format(["{0:0.4f}".format(loss) for loss in model.metrics.losses_fit]))
+        self.logger.info("accuracies fit: {}".format(["{0:0.4f}".format(acc) for acc in model.metrics.accuracies_fit]))
+        self.logger.info("computation costs fit: {}, total: {:0.2f}".format(
+            ["{0:0.2f}".format(c) for c in model.metrics.computation_costs_fit], sum(model.metrics.computation_costs_fit)))
+        self.logger.info("network costs fit: {}, total: {:0.2f}".format(
+            ["{0:0.2f}".format(c) for c in model.metrics.network_costs_fit], sum(model.metrics.network_costs_fit)))
+        self.logger.info("losses eval: {}".format(["{0:0.4f}".format(loss) for loss in model.metrics.losses_eval]))
+        self.logger.info("accuracies eval: {}".format(["{0:0.4f}".format(acc) for acc in model.metrics.accuracies_eval]))
         self.logger.info("dev_configs: {}".format(model.metrics.device_configs))
+
+    def export_model_metrics(self, model):
+        cs = model.control_strategy
+        filename = self.metrics_file.format(model.name, cs.name, cs.target.num_round,
+                                            int(cs.target.accuracy*100), cs.target.network_cost)
+        self.logger.info("saving metrics to file {}".format(filename))
+        metrics = dict(model.metrics.__dict__)
+        metrics["target"] = model.control_strategy.target.__dict__
+        metrics["num_rounds"] = model.control_strategy.num_rounds
+        with open(filename, 'w') as outfile:
+            json.dump(metrics, outfile)
 
     def fit_model(self, model: Model, devices: List[Device], device_config: dict):
         job: Job = Job(job_type=JobType.FIT,
@@ -196,8 +199,6 @@ class Orchestrator:
             self.condition.wait_for(lambda: self.results_queue.qsize() >= num_responses)
             self.logger.debug("responses received")
 
-
-
     def add_result(self, result: Result):
         self.results_queue.put(result)
         with self.condition:
@@ -226,3 +227,5 @@ class Orchestrator:
     def process_response(self, job):
         pass
     """
+
+
