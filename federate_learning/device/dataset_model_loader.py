@@ -68,7 +68,7 @@ class DatasetModelLoader:
 
             return training_data, training_targets, testing_data, testing_targets
 
-    def get_compiled_model(self):
+    def get_compiled_model(self, optimizer: str):
         if self.model == "mnist":
             # build and compile Keras model
             tf_model = tf.keras.models.Sequential(
@@ -80,7 +80,7 @@ class DatasetModelLoader:
                 ]
             )
             tf_model.compile(
-                optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"]
+                optimizer=optimizer, loss="sparse_categorical_crossentropy", metrics=["accuracy"]
             )
             return tf_model
         elif self.model == "fashion_mnist":  # https://www.tensorflow.org/tutorials/keras/classification
@@ -89,7 +89,7 @@ class DatasetModelLoader:
                 tf.keras.layers.Dense(128, activation='relu'),
                 tf.keras.layers.Dense(10)
             ])
-            tf_model.compile(optimizer='adam',
+            tf_model.compile(optimizer=optimizer,
                              loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
                              metrics=['accuracy'])
             return tf_model
@@ -104,7 +104,7 @@ class DatasetModelLoader:
             tf_model.add(tf.keras.layers.Dense(64, activation='relu'))
             tf_model.add(tf.keras.layers.Dense(10))
 
-            tf_model.compile(optimizer='adam',
+            tf_model.compile(optimizer=optimizer,
                              loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
                              metrics=['accuracy'])
             return tf_model
@@ -121,7 +121,7 @@ class DatasetModelLoader:
             tf_model.add(tf.keras.layers.Dense(1, activation="sigmoid"))
 
             tf_model.compile(
-                optimizer="adam",
+                optimizer=optimizer,
                 loss="binary_crossentropy",
                 metrics=["accuracy"]
             )

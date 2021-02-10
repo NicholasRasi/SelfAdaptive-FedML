@@ -16,19 +16,19 @@ target_num_rounds = int(os.getenv('FL_TROUNDS') or 10)
 target_network_cost = int(os.getenv('FL_TNETWORK') or 100)
 model = str(os.getenv('FL_MODEL') or "mnist")
 
-mnist_control_strategy = ControlStrategyFactory.factory(num_rounds=num_rounds,
-                                                        min_devices=min_devices,
-                                                        num_epochs=num_epochs,
-                                                        batch_size=batch_size,
-                                                        k_fit=k_fit,
-                                                        k_eval=k_eval,
-                                                        control_type=control_type,
-                                                        target=Target(accuracy=target_accuracy,
-                                                                      num_round=target_num_rounds,
-                                                                      network_cost=target_network_cost))
+control_strategy = ControlStrategyFactory.factory(num_rounds=num_rounds,
+                                                  min_devices=min_devices,
+                                                  num_epochs=num_epochs,
+                                                  batch_size=batch_size,
+                                                  k_fit=k_fit,
+                                                  k_eval=k_eval,
+                                                  control_type=control_type,
+                                                  target=Target(accuracy=target_accuracy,
+                                                                num_round=target_num_rounds,
+                                                                network_cost=target_network_cost))
 mnist_model = fl.Model(name=model,
                        framework="TF",
-                       control_strategy=mnist_control_strategy)
+                       control_strategy=control_strategy)
 models_for_training = [mnist_model]
 
 app = fl.orchestrator.OrchestratorApp(__name__)

@@ -2,6 +2,7 @@ import json
 import threading
 import time
 import queue
+import os
 from typing import List, Tuple
 from federate_learning.device import Device
 from federate_learning.orchestrator import DeviceManager, JobsDispatcher
@@ -20,7 +21,6 @@ class Orchestrator:
         self.condition = threading.Condition()
         self.available_models = {}
         self.export_metrics = False
-        self.metrics_file = 'execution_metrics/metrics_{}_{}_{}_{}_{}.json'
 
     def config(self,
                available_models,
@@ -63,7 +63,6 @@ class Orchestrator:
                 devices_fit = self.device_manager.get_sample(model_name=model.name,
                                                              num_devices=num_devices_fit)
                 self.logger.info("selected random client sample: {}".format([d.id for d in devices_fit]))
-
                 self.logger.info("fitting model")
                 new_weights, aggregated_loss_fit, \
                 aggregated_acc_fit, aggregated_cost_fit = self.fit_model(model=model,
@@ -118,15 +117,22 @@ class Orchestrator:
         self.logger.info("dev_configs: {}".format(model.metrics.device_configs))
 
     def export_model_metrics(self, model):
-        cs = model.control_strategy
-        filename = self.metrics_file.format(model.name, cs.name, cs.target.num_round,
-                                            int(cs.target.accuracy*100), cs.target.network_cost)
+        cs: ControlStrategy = model.control_strategy
+        if cs.name == "Static":
+            metrics_file = 'execution_metrics/metrics_{}_{}_{}_{}_{}_{}.json'
+            filename = metrics_file.format(model.name, cs.name, cs.min_devices, cs.num_rounds, cs.num_epochs, cs.batch_size)
+        else:
+            metrics_file = 'execution_metrics/metrics_{}_{}_{}_{}_{}_{}.json'
+            filename = metrics_file.format(model.name, cs.name, cs.min_devices, cs.target.num_round,
+                                           int(cs.target.accuracy*100), cs.target.network_cost)
         self.logger.info("saving metrics to file {}".format(filename))
         metrics = dict(model.metrics.__dict__)
         metrics["target"] = model.control_strategy.target.__dict__
         metrics["num_rounds"] = model.control_strategy.num_rounds
         with open(filename, 'w') as outfile:
             json.dump(metrics, outfile)
+        os.system('killall python')
+
 
     def fit_model(self, model: Model, devices: List[Device], device_config: dict):
         job: Job = Job(job_type=JobType.FIT,

@@ -15,12 +15,12 @@ port = os.getenv('FL_PORT') or random.randint(5100, 5200)
 
 # local sample size n_k
 nk = int(os.getenv('FL_NK') or 100)
-model = str(os.getenv('FL_MODEL') or "mnist")
+model_name = str(os.getenv('FL_MODEL') or "mnist")
 server_host = str(os.getenv('FL_SERVERHOST') or 'localhost:5000')
 
-model_loader = DatasetModelLoader(model)
+model_loader = DatasetModelLoader(model_name)
 x_train, y_train, x_test, y_test = model_loader.get_dataset(nk)
-tf_model = model_loader.get_compiled_model()
+tf_model = model_loader.get_compiled_model(optimizer="adam")
 
 
 class TrainableModel(fl.Model):
@@ -42,7 +42,7 @@ class TrainableModel(fl.Model):
         return len(x_test), loss, accuracy
 
 
-model = TrainableModel(name=model, framework="TF", model=tf_model)
+model = TrainableModel(name=model_name, framework="TF", model=tf_model)
 
 # init available models
 available_models = [model]
