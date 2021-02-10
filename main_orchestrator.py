@@ -15,6 +15,9 @@ target_accuracy = float(os.getenv('FL_TACCURACY') or 0.8)
 target_num_rounds = int(os.getenv('FL_TROUNDS') or 10)
 target_network_cost = int(os.getenv('FL_TNETWORK') or 100)
 model = str(os.getenv('FL_MODEL') or "mnist")
+export_metrics = bool(os.getenv('FL_EXPORT_METRICS') or False)
+terminate_on_finish = bool(os.getenv('FL_TERMINATE') or False)
+
 
 control_strategy = ControlStrategyFactory.factory(num_rounds=num_rounds,
                                                   min_devices=min_devices,
@@ -33,5 +36,6 @@ models_for_training = [mnist_model]
 
 app = fl.orchestrator.OrchestratorApp(__name__)
 app.orchestrator.config(available_models=models_for_training,
-                        export_metrics=True)
+                        export_metrics=export_metrics,
+                        terminate_on_finish=terminate_on_finish)
 app.run()

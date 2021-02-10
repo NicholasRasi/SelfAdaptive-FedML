@@ -20,16 +20,19 @@ class Orchestrator:
         self.device_manager = DeviceManager()
         self.condition = threading.Condition()
         self.available_models = {}
+        self.terminate_on_finish = False
         self.export_metrics = False
 
     def config(self,
                available_models,
-               export_metrics=False):
+               export_metrics=False,
+               terminate_on_finish=False):
         self.available_models = available_models
         for model in available_models:
             model.logger = self.logger
             model.control_strategy.logger = self.logger
         self.export_metrics = export_metrics
+        self.terminate_on_finish = terminate_on_finish
 
     def training(self):
         for model in self.available_models:
@@ -131,7 +134,9 @@ class Orchestrator:
         metrics["num_rounds"] = model.control_strategy.num_rounds
         with open(filename, 'w') as outfile:
             json.dump(metrics, outfile)
-        os.system('killall python')
+        if self.terminate_on_finish:
+            self.logger.info("terminating...")
+            os.system('killall python')
 
 
     def fit_model(self, model: Model, devices: List[Device], device_config: dict):

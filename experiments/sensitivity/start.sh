@@ -3,6 +3,8 @@ set -e
 
 export FL_ROUNDS=${FL_ROUNDS:=15}
 export FL_CONTROL=1
+export FL_EXPORT_METRICS=true
+export FL_TERMINATE=true
 
 cd ../..
 for mparams in "mnist",100; do
