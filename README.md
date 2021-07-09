@@ -1,3 +1,8 @@
+L. Baresi, G. Quattrocchi and N. Rasi, "Federated Machine Learning as a Self-Adaptive Problem," in 2021 International Symposium on Software Engineering for Adaptive and Self-Managing Systems (SEAMS), 2021 pp. 41-47.
+url: https://doi.ieeecomputersociety.org/10.1109/SEAMS51251.2021.00016
+
+---
+
 # Federated Learning Framework
 
 The FL framework is composed by the following two components:
